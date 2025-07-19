@@ -1,0 +1,7 @@
+# ~/.gitconfig
+
+[includeIf "gitdir:C:/Users/pentester/_dev/github/"]
+    path = C:/Users/pentester/.gitconfig-github
+
+[includeIf "gitdir:C:/Users/pentester/_dev/gitlab/"]
+    path = C:/Users/pentester/.gitconfig-gitlab
