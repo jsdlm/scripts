@@ -1,7 +1,7 @@
 # ~/.gitconfig
 
-[includeIf "gitdir:C:/Users/pentester/_dev/github/"]
-    path = C:/Users/pentester/.gitconfig-github
+[includeIf "gitdir:C:/Users/jlobel/_dev/github/"]
+    path = C:/Users/jlobel/.gitconfig-github
 
-[includeIf "gitdir:C:/Users/pentester/_dev/gitlab/"]
-    path = C:/Users/pentester/.gitconfig-gitlab
+[includeIf "gitdir:C:/Users/jlobel/_dev/cyberlab/"]
+    path = C:/Users/jlobel/.gitconfig-cyberlab
