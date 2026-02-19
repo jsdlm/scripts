@@ -23,7 +23,7 @@ while IFS= read -r PROJECT_ID; do
         echo "Traitement du projet : $PROJECT_ID"
         
         # Exécution de la commande gcloud pour ce projet
-        gcloud sql instances list --quiet --project=$PROJECT_ID --format="csv(project,name,database_version,settings.ipConfiguration.ipv4Enabled,settings.ipConfiguration.requireSsl,settings.ipConfiguration.sslMode,settings.backupConfiguration.enabled)" 2>/dev/null >> "$OUTPUT_FILE"
+        gcloud sql instances list --quiet --project=$PROJECT_ID --format="csv(project,name,state,database_version,createTime,instanceType,settings.ipConfiguration.ipv4Enabled,settings.ipConfiguration.requireSsl,settings.ipConfiguration.sslMode,settings.backupConfiguration.enabled,ipAddresses[0].ipAddress,ipAddresses[0].type,ipAddresses[1].ipAddress,ipAddresses[1].type,settings.ipConfiguration.authorizedNetworks[0].kind,settings.ipConfiguration.authorizedNetworks[0].name,settings.ipConfiguration.authorizedNetworks[0].value)" 2>/dev/null >> "$OUTPUT_FILE"
     fi
 done < "$PROJECTS_FILE"
 
