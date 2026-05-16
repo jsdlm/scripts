@@ -1,8 +1,8 @@
-# Find-InterestingFiles.ps1
-# Usage: .\Find-InterestingFiles.ps1 [-Path "C:\"] [-OutputFile "rapport.html"]
+# WinHarvest.ps1
+# Usage: .\WinHarvest.ps1 [-Path "C:\Users\"] [-OutputFile "rapport.html"]
 
 param(
-    [string]$Path = "C:\",
+    [string]$Path = "C:\Users\",
     [string]$OutputFile = ".\InterestingFiles_$(Get-Date -Format 'yyyyMMdd_HHmmss').html"
 )
 
@@ -17,7 +17,7 @@ function HtmlEncode($s) {
 $InterestingNames = @(
     "*password*", "*passwd*", "*credential*", "*key*",
     "*secret*", "*token*", "*apikey*", "*api_key*", "*private*",
-    "*vpn*", "*ssh*", "*rdp*", "*ftp*", "*smtp*", "*database*",
+    "*vpn*", "*ssh*", "*rdp*", "*ftp*", "*smtp*", "*database*"
 )
 
 $InterestingExtensions = @(
@@ -111,6 +111,10 @@ $Html = @"
   .filter-group label { font-size: 12px; display: flex; align-items: center; gap: 3px; cursor: pointer; white-space: nowrap; }
   .filter-group input[type=checkbox] { margin: 0; cursor: pointer; }
   .count { font-size: 12px; color: #555; }
+  #exclude-input { width: 180px; }
+  .excl-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .excl-tag { display: flex; align-items: center; gap: 3px; background: #f5c6cb; color: #721c24; padding: 1px 6px; font-size: 11px; border-radius: 2px; }
+  .excl-tag button { background: none; border: none; color: #721c24; cursor: pointer; font-size: 12px; padding: 0 1px; line-height: 1; }
   table { width: 100%; border-collapse: collapse; background: #fff; }
   thead th { background: #222; color: #fff; text-align: left; padding: 7px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
   thead th:hover { background: #444; }
@@ -150,6 +154,12 @@ $Html = @"
       <span class="filter-label">Extension</span>
       <button onclick="setAll('ext',true)">All</button>
       <button onclick="setAll('ext',false)">None</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Exclure</span>
+      <input type="text" id="exclude-input" placeholder="nom ou chemin..." onkeydown="if(event.key==='Enter')addExclusion()">
+      <button onclick="addExclusion()">+</button>
+      <div class="excl-tags" id="excl-tags"></div>
     </div>
   </div>
 </div>
@@ -195,6 +205,36 @@ $TableRows
     grpExt.appendChild(lbl);
   });
 
+  // exclusions
+  let exclusions = ['find-interestingfiles.ps1', 'appdata', 'desktop.ini'];
+  function addExclusion() {
+    const inp = document.getElementById('exclude-input');
+    const val = inp.value.trim().toLowerCase();
+    if (!val || exclusions.includes(val)) { inp.value = ''; return; }
+    exclusions.push(val);
+    inp.value = '';
+    renderExclusions();
+    applyFilters();
+  }
+  function removeExclusion(i) {
+    exclusions.splice(i, 1);
+    renderExclusions();
+    applyFilters();
+  }
+  function renderExclusions() {
+    const container = document.getElementById('excl-tags');
+    container.innerHTML = '';
+    exclusions.forEach((v, i) => {
+      const tag = document.createElement('span');
+      tag.className = 'excl-tag';
+      tag.innerHTML = v + '<button onclick="removeExclusion(' + i + ')" title="Supprimer">&times;</button>';
+      container.appendChild(tag);
+    });
+  }
+
+  renderExclusions();
+  applyFilters();
+
   function checkedValues(cls) {
     return new Set([...document.querySelectorAll('.' + cls + ':checked')].map(c => c.value));
   }
@@ -210,12 +250,14 @@ $TableRows
     const extSet  = checkedValues('cb-ext');
     let vis = 0;
     rows.forEach(r => {
+      const name = r.cells[0].textContent.toLowerCase();
+      const path = r.cells[1].textContent.toLowerCase();
+      const ext  = r.cells[2].textContent.trim();
       const show =
-        (!q || r.cells[0].textContent.toLowerCase().includes(q)
-            || r.cells[1].textContent.toLowerCase().includes(q)
-            || r.cells[2].textContent.toLowerCase().includes(q))
+        (!q || name.includes(q) || path.includes(q) || ext.toLowerCase().includes(q))
         && matches.has(r.cells[5].textContent.trim())
-        && extSet.has(r.cells[2].textContent.trim());
+        && extSet.has(ext)
+        && !exclusions.some(x => name.includes(x) || path.includes(x));
       r.style.display = show ? '' : 'none';
       if (show) vis++;
     });
