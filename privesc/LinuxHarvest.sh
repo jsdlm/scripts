@@ -1,102 +1,109 @@
-# WinHarvest.ps1
-# Usage: .\WinHarvest.ps1 [-Path "C:\Users\"] [-OutputFile "rapport.html"]
+#!/usr/bin/env bash
+# LinuxHarvest.sh
+# Usage: ./LinuxHarvest.sh [-p /home/] [-o rapport.html]
 
-param(
-    [string]$Path = "C:\Users\",
-    [string]$OutputFile = ".\InterestingFiles_$(Get-Date -Format 'yyyyMMdd_HHmmss').html"
-)
+SCAN_PATH="/home/"
+OUTPUT_FILE="./InterestingFiles_$(date +%Y%m%d_%H%M%S).html"
 
-function HtmlEncode($s) {
-    $s = $s -replace '&', '&amp;'
-    $s = $s -replace '<', '&lt;'
-    $s = $s -replace '>', '&gt;'
-    $s = $s -replace '"', '&quot;'
-    return $s
+while getopts "p:o:" opt; do
+    case $opt in
+        p) SCAN_PATH="$OPTARG" ;;
+        o) OUTPUT_FILE="$OPTARG" ;;
+    esac
+done
+
+_HE=""
+html_encode() {
+    _HE="$1"
+    _HE="${_HE//&/&amp;}"
+    _HE="${_HE//</&lt;}"
+    _HE="${_HE//>/&gt;}"
+    _HE="${_HE//\"/&quot;}"
 }
 
-$InterestingNames = @(
-    "*password*", "*passwd*", "*credential*", "*key*",
-    "*secret*", "*token*", "*apikey*", "*api_key*", "*private*",
-    "*vpn*", "*ssh*", "*rdp*", "*ftp*", "*smtp*", "*database*"
+NAME_PATTERNS=(
+    "*password*" "*passwd*" "*credential*" "*key*"
+    "*secret*" "*token*" "*apikey*" "*api_key*" "*private*"
+    "*vpn*" "*ssh*" "*rdp*" "*ftp*" "*smtp*" "*database*"
 )
 
-$InterestingExtensions = @(
-    ".xml", ".ini", ".config", ".conf", ".cfg", ".txt", ".bat",
-    ".ps1", ".psm1", ".psd1", ".vbs", ".cmd", ".rdp", ".rdg", ".vnc",
-    ".env", ".yaml", ".yml", ".json", ".toml", ".properties", ".settings",
-    ".kdbx", ".kdb", ".pem", ".pfx", ".p12", ".ovpn", ".key",
-    ".log", ".bak", ".old", ".backup", ".sql", ".db",
-    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".odt", ".ods", ".odp", ".csv", ".mdb", ".accdb"
+EXTENSIONS=(
+    ".xml" ".ini" ".config" ".conf" ".cfg" ".txt" ".bat"
+    ".ps1" ".psm1" ".psd1" ".vbs" ".cmd" ".rdp" ".rdg" ".vnc"
+    ".env" ".yaml" ".yml" ".json" ".toml" ".properties" ".settings"
+    ".kdbx" ".kdb" ".pem" ".pfx" ".p12" ".ovpn" ".key"
+    ".log" ".bak" ".old" ".backup" ".sql" ".db"
+    ".doc" ".docx" ".xls" ".xlsx" ".ppt" ".pptx"
+    ".odt" ".ods" ".odp" ".csv" ".mdb" ".accdb"
+    ".sh" ".py" ".rb" ".php"
 )
 
-Write-Host "[*] Scan en cours sur : $Path" -ForegroundColor Cyan
+echo "[*] Scan en cours sur : $SCAN_PATH"
 
-$Results = [System.Collections.Generic.List[object]]::new()
+TMPFILE=$(mktemp)
+COUNTER=0
+FOUND=0
 
-$AllFiles = Get-ChildItem -Path $Path -Recurse -ErrorAction SilentlyContinue -Force |
-    Where-Object { -not $_.PSIsContainer }
+while IFS=$'\t' read -r filename filepath size_bytes mod_date; do
+    COUNTER=$((COUNTER + 1))
+    (( COUNTER % 1000 == 0 )) && printf "\r[*] %d fichiers analyses..." "$COUNTER" >&2
 
-$Total = $AllFiles.Count
-$Counter = 0
+    name_lc="${filename,,}"
 
-foreach ($File in $AllFiles) {
-    $Counter++
-    if ($Counter % 1000 -eq 0) {
-        Write-Progress -Activity "Scan" -Status "$Counter / $Total" -PercentComplete (($Counter / $Total) * 100)
-    }
+    ext=""
+    if [[ "$filename" == *.* ]]; then
+        ext=".${filename##*.}"
+        ext="${ext,,}"
+    fi
 
-    $MatchedBy = $null
+    matched_by=""
 
-    foreach ($Pattern in $InterestingNames) {
-        if ($File.Name -like $Pattern) {
-            $MatchedBy = "Nom"
+    for pattern in "${NAME_PATTERNS[@]}"; do
+        if [[ "$name_lc" == $pattern ]]; then
+            matched_by="Nom"
             break
-        }
-    }
+        fi
+    done
 
-    if (-not $MatchedBy -and ($InterestingExtensions -contains $File.Extension.ToLower())) {
-        $MatchedBy = "Extension"
-    }
+    if [[ -z "$matched_by" && -n "$ext" ]]; then
+        for e in "${EXTENSIONS[@]}"; do
+            if [[ "$ext" == "$e" ]]; then
+                matched_by="Extension"
+                break
+            fi
+        done
+    fi
 
-    if ($MatchedBy) {
-        $Results.Add([PSCustomObject]@{
-            Name         = $File.Name
-            FullPath     = $File.FullName
-            Extension    = $File.Extension
-            SizeKB       = [math]::Round($File.Length / 1KB, 2)
-            LastModified = $File.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
-            MatchedBy    = $MatchedBy
-        })
-    }
-}
+    if [[ -n "$matched_by" ]]; then
+        size_bytes="${size_bytes:-0}"
+        size_kb_int=$((size_bytes / 1024))
+        size_kb_dec=$(( (size_bytes % 1024) * 100 / 1024 ))
+        printf -v size_kb "%d.%02d" "$size_kb_int" "$size_kb_dec"
 
-Write-Progress -Activity "Scan" -Completed
-Write-Host "[+] $($Results.Count) fichiers trouves." -ForegroundColor Green
+        html_encode "$filename"; enc_name="$_HE"
+        html_encode "$filepath"; enc_path="$_HE"
+        html_encode "$ext";      enc_ext="$_HE"
 
-$TableRows = ""
-foreach ($R in $Results) {
-    $TableRows += "    <tr>`n"
-    $TableRows += "      <td>" + (HtmlEncode $R.Name) + "</td>`n"
-    $TableRows += "      <td class='path'>" + (HtmlEncode $R.FullPath) + "</td>`n"
-    $TableRows += "      <td>" + (HtmlEncode $R.Extension) + "</td>`n"
-    $TableRows += "      <td>" + $R.SizeKB + " KB</td>`n"
-    $TableRows += "      <td>" + $R.LastModified + "</td>`n"
-    $TableRows += "      <td>" + (HtmlEncode $R.MatchedBy) + "</td>`n"
-    $TableRows += "    </tr>`n"
-}
+        printf "    <tr>\n      <td>%s</td>\n      <td class='path'>%s</td>\n      <td>%s</td>\n      <td>%s KB</td>\n      <td>%s</td>\n      <td>%s</td>\n    </tr>\n" \
+            "$enc_name" "$enc_path" "$enc_ext" "$size_kb" "$mod_date" "$matched_by" >> "$TMPFILE"
+        FOUND=$((FOUND + 1))
+    fi
+done < <(find "$SCAN_PATH" -type f -printf '%f\t%p\t%s\t%TY-%Tm-%Td %TH:%TM\n' 2>/dev/null)
 
-$ScanDate   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$TotalFound = $Results.Count
-$HostName   = $env:COMPUTERNAME
-$PathEnc    = HtmlEncode $Path
+printf "\r\033[K"
+echo "[+] $FOUND fichiers trouves."
 
-$Html = @"
+SCAN_DATE=$(date "+%Y-%m-%d %H:%M:%S")
+HOSTNAME_VAL=$(hostname)
+html_encode "$SCAN_PATH"; PATH_ENC="$_HE"
+
+{
+cat << HTMLEOF
 <!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Interesting Files - $HostName</title>
+<title>Interesting Files - $HOSTNAME_VAL</title>
 <style>
   body { font-family: Consolas, monospace; font-size: 13px; background: #f5f5f5; color: #222; margin: 0; padding: 20px; }
   h1 { font-size: 15px; margin-bottom: 6px; }
@@ -131,16 +138,16 @@ $Html = @"
 <body>
 <h1>Interesting Files Report</h1>
 <div class="meta">
-  Host : <b>$HostName</b> &nbsp;|&nbsp;
-  Path : <b>$PathEnc</b> &nbsp;|&nbsp;
-  Date : <b>$ScanDate</b> &nbsp;|&nbsp;
-  Total : <b>$TotalFound fichiers</b>
+  Host : <b>$HOSTNAME_VAL</b> &nbsp;|&nbsp;
+  Path : <b>$PATH_ENC</b> &nbsp;|&nbsp;
+  Date : <b>$SCAN_DATE</b> &nbsp;|&nbsp;
+  Total : <b>$FOUND fichiers</b>
 </div>
 
 <div class="filters">
   <div class="filters-row">
     <input type="text" id="search" placeholder="Filtrer nom, chemin, extension..." oninput="applyFilters()">
-    <span class="count">Affichage : <span id="visible-count">$TotalFound</span> / $TotalFound</span>
+    <span class="count">Affichage : <span id="visible-count">$FOUND</span> / $FOUND</span>
   </div>
   <div class="filters-row">
     <div class="filter-group">
@@ -176,7 +183,9 @@ $Html = @"
     </tr>
   </thead>
   <tbody id="table-body">
-$TableRows
+HTMLEOF
+cat "$TMPFILE"
+cat << 'HTMLEOF_END'
   </tbody>
 </table>
 <div id="no-results">Aucun resultat.</div>
@@ -206,7 +215,7 @@ $TableRows
   });
 
   // exclusions
-  let exclusions = ['winharvest.ps1', 'appdata', 'desktop.ini', 'ntuser.ini'];
+  let exclusions = ['linuxharvest.sh', '.cache', '.thumbnail'];
   function addExclusion() {
     const inp = document.getElementById('exclude-input');
     const val = inp.value.trim().toLowerCase();
@@ -279,7 +288,8 @@ $TableRows
 </script>
 </body>
 </html>
-"@
+HTMLEOF_END
+} > "$OUTPUT_FILE"
 
-$Html | Out-File -FilePath $OutputFile -Encoding UTF8
-Write-Host "[+] Rapport genere : $OutputFile" -ForegroundColor Green
+rm -f "$TMPFILE"
+echo "[+] Rapport genere : $OUTPUT_FILE"
