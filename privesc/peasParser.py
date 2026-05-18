@@ -231,6 +231,19 @@ class CategoryManager:
         return "Other Checks"
 
 
+class CredentialScanner:
+    PATTERNS = [
+        re.compile(r'(?i)-pw\s+["\']?\S{3,}'),
+        re.compile(r'(?i)--password[= ]["\']?\S{3,}'),
+        re.compile(r'(?i)(password|passwd|pwd|pass|secret|api[_-]?key|token)[=:]\s*["\']?\S{4,}'),
+        re.compile(r'(?i)net use .+ /user:.+\s+\S+'),
+    ]
+
+    @classmethod
+    def scan(cls, text):
+        return any(p.search(text) for p in cls.PATTERNS)
+
+
 class PeasParser:
     """Parses Linpeas/Winpeas output."""
 
@@ -250,6 +263,7 @@ class PeasParser:
         self.hostname = "unknown"
         self.section_ids = {}
         self.seen_findings = set()
+        self.custom_sections = set()
         # Stats for reporting
         self.stats = {
             'sections_with_critical': 0,
@@ -263,6 +277,7 @@ class PeasParser:
         self._extract_sections()
         self._organize_categories()
         self._extract_findings_contextual()
+        self._scan_custom_findings()
         self._calculate_stats()
 
     def _strip_initial_banner(self):
@@ -482,6 +497,14 @@ class PeasParser:
             if current_section_findings:
                 self.section_findings[title] = current_section_findings
 
+    def _scan_custom_findings(self):
+        for title, content in self.sections.items():
+            for line in content.splitlines():
+                clean = self.converter.strip(line).strip()
+                if clean and CredentialScanner.scan(clean):
+                    self.custom_sections.add(title)
+                    break
+
     def _calculate_stats(self):
         """Calculate statistics based on sections with findings, not individual lines."""
         sections_with_critical = set()
@@ -535,11 +558,12 @@ class ReportGenerator:
             # Calculate stats for this category - count SECTIONS not individual findings
             sections_with_crit = 0
             sections_with_high = 0
+            sections_with_custom = 0
             for title in sections.keys():
                 # Skip "General Information" from report summary
                 if title == "General Information":
                     continue
-                    
+
                 if title in self.parser.section_findings:
                     findings = self.parser.section_findings[title]
                     has_critical = any(f['level'] == 'critical' for f in findings)
@@ -550,13 +574,18 @@ class ReportGenerator:
                     elif has_high:
                         sections_with_high += 1
 
+                if title in self.parser.custom_sections:
+                    sections_with_custom += 1
+
             stats_badge = ""
-            if sections_with_crit > 0 or sections_with_high > 0:
+            if sections_with_crit > 0 or sections_with_high > 0 or sections_with_custom > 0:
                 parts = []
                 if sections_with_crit > 0:
                     parts.append(f"<span class='stat-crit'>{sections_with_crit}C</span>")
                 if sections_with_high > 0:
                     parts.append(f"<span class='stat-high'>{sections_with_high}H</span>")
+                if sections_with_custom > 0:
+                    parts.append(f"<span class='stat-custom'>{sections_with_custom}</span>")
                 stats_badge = f"<span class='cat-stats'>{' '.join(parts)}</span>"
 
             # Count sections for display (excluding General Information)
@@ -593,7 +622,10 @@ class ReportGenerator:
                     else:
                         indicator = f'<span class="toc-finding-dot high" onclick="toggleRead(this, event)" title="Click to mark read"></span>'
 
-                toc_html.append(f'<li><a href="#{sec_id}"><span class="toc-title">{safe_title}</span>{indicator}</a></li>')
+                custom_dot = ''
+                if title in self.parser.custom_sections:
+                    custom_dot = '<span class="toc-finding-dot custom" title="Credential pattern detected"></span>'
+                toc_html.append(f'<li><a href="#{sec_id}"><span class="toc-title">{safe_title}</span>{indicator}{custom_dot}</a></li>')
 
                 colored_content = converter.to_html(content)
 
@@ -657,10 +689,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .toc-finding-dot.high {{ background: var(--high-fg); box-shadow: 0 0 5px var(--high-fg); }}
         .toc-finding-dot.critical {{ background: var(--critical-bg); border: 2px solid var(--critical-fg); box-shadow: 0 0 5px var(--critical-bg); width: 8px; height: 8px; }}
         .toc-finding-dot.read {{ background: #444 !important; border-color: #444 !important; box-shadow: none !important; opacity: 0.5; }}
+        .toc-finding-dot.custom {{ background: #9b59b6; box-shadow: 0 0 5px #9b59b6; }}
 
         .cat-stats {{ font-size: 0.8em; display: flex; gap: 5px; }}
         .stat-crit {{ color: var(--critical-fg); background: var(--critical-bg); padding: 1px 4px; border-radius: 3px; font-weight: bold; }}
         .stat-high {{ color: #000; background: var(--high-fg); padding: 1px 4px; border-radius: 3px; font-weight: bold; }}
+        .stat-custom {{ color: #fff; background: #9b59b6; padding: 1px 4px; border-radius: 3px; font-weight: bold; }}
 
         .count {{ font-size: 0.8em; opacity: 0.5; font-weight: normal; background: #333; padding: 2px 6px; border-radius: 10px; margin-left: 5px; }}
         main {{ flex: 1; display: flex; flex-direction: column; overflow: hidden; }}
