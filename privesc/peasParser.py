@@ -508,10 +508,7 @@ class ReportGenerator:
         self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     def generate(self):
-        terminal_json_name = f"terminal_{self.parser.hostname}_{self.timestamp}.json"
-        self._save_terminal_data(terminal_json_name)
-
-        html_content = self._build_html(terminal_json_name)
+        html_content = self._build_html()
 
         report_name = f"report_{self.parser.hostname}_{self.timestamp}.html"
         with open(self.output_dir / report_name, 'w', encoding='utf-8') as f:
@@ -519,28 +516,17 @@ class ReportGenerator:
 
         return report_name
 
-    def _save_terminal_data(self, filename):
+    def _build_terminal_chunks_json(self):
         lines = self.parser.raw_content.splitlines()
         converted_lines = [self.parser.converter.to_html(line) for line in lines]
         chunks = ['\n'.join(converted_lines[i:i + CHUNK_SIZE]) for i in range(0, len(converted_lines), CHUNK_SIZE)]
+        return json.dumps(chunks)
 
-        data = {
-            "meta": {
-                "hostname": self.parser.hostname,
-                "lines": len(lines),
-                "chunks": len(chunks),
-                "generated": self.timestamp
-            },
-            "chunks": chunks
-        }
-
-        with open(self.output_dir / filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f)
-
-    def _build_html(self, json_file):
+    def _build_html(self):
         toc_html = []
         content_html = []
         converter = AnsiConverter()
+        chunks_json = self._build_terminal_chunks_json()
 
         for category_name, sections in self.parser.categorized_sections.items():
             if not sections:
@@ -629,7 +615,7 @@ class ReportGenerator:
             timestamp=self.timestamp,
             toc='\n'.join(toc_html),
             content='\n'.join(content_html),
-            json_file=json_file
+            chunks_json=chunks_json
         )
 
 
@@ -743,9 +729,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div id=\"loading\">Loading...</div>
     </main>
     <script>
-        const TERMINAL_FILE = '{json_file}';
+        const TERMINAL_CHUNKS = {chunks_json};
         let terminalLoaded = false;
-        let chunks = [];
         let nextChunkIdx = 0;
         function expandAll(open) {{ document.querySelectorAll('details').forEach(el => el.open = open); }}
         function switchView(viewName) {{
@@ -756,31 +741,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             if (viewName === 'report') btns[0].classList.add('active'); else btns[1].classList.add('active');
             if (viewName === 'terminal' && !terminalLoaded) {{ loadTerminal(); }}
         }}
-        async function loadTerminal() {{
-            const loader = document.getElementById('loading');
-            loader.style.display = 'block';
-            try {{
-                const res = await fetch(TERMINAL_FILE);
-                if (!res.ok) throw new Error("HTTP " + res.status);
-                const data = await res.json();
-                chunks = data.chunks;
-                terminalLoaded = true;
-                renderNextChunk();
-            }} catch (e) {{
-                document.getElementById('term-content').innerText = "Load failed: " + e;
-            }} finally {{
-                loader.style.display = 'none';
-            }}
+        function loadTerminal() {{
+            terminalLoaded = true;
+            renderNextChunk();
         }}
         function renderNextChunk() {{
-            if (nextChunkIdx >= chunks.length) return;
-            document.getElementById('term-content').innerHTML += chunks[nextChunkIdx] + "\\n";
+            if (nextChunkIdx >= TERMINAL_CHUNKS.length) return;
+            document.getElementById('term-content').innerHTML += TERMINAL_CHUNKS[nextChunkIdx] + "\\n";
             nextChunkIdx++;
         }}
         document.getElementById('terminal-view').addEventListener('scroll', (e) => {{
             if (e.target.scrollHeight - e.target.scrollTop - e.target.clientHeight < 400) {{ renderNextChunk(); }}
         }});
-        // --- Toggle Read Status ---
         function toggleRead(el, event) {{
             event.preventDefault();
             event.stopPropagation();
