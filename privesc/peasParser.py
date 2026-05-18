@@ -261,6 +261,7 @@ class PeasParser:
         self.findings = []
         self.section_findings = {}
         self.hostname = "unknown"
+        self.tool = "peas"
         self.section_ids = {}
         self.seen_findings = set()
         self.custom_sections = set()
@@ -273,6 +274,7 @@ class PeasParser:
 
     def parse(self):
         self._strip_initial_banner()
+        self._detect_tool()
         self._extract_hostname()
         self._extract_sections()
         self._organize_categories()
@@ -344,6 +346,13 @@ class PeasParser:
                 return True
         
         return False
+
+    def _detect_tool(self):
+        content_lower = self.raw_content.lower()
+        if 'winpeas' in content_lower:
+            self.tool = 'winpeas'
+        elif 'linpeas' in content_lower:
+            self.tool = 'linpeas'
 
     def _extract_hostname(self):
         match = re.search(r'Hostname:\s*([\w\-\.]+)', self.clean_content, re.IGNORECASE)
@@ -528,12 +537,14 @@ class ReportGenerator:
     def __init__(self, parser, output_dir):
         self.parser = parser
         self.output_dir = Path(output_dir)
-        self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        now = datetime.now()
+        self.timestamp = now.strftime('%Y%m%d_%H%M%S')
 
     def generate(self):
         html_content = self._build_html()
 
-        report_name = f"report_{self.parser.hostname}_{self.timestamp}.html"
+        p = self.parser
+        report_name = f"{p.hostname}_{self.timestamp}_{p.tool}.html"
         with open(self.output_dir / report_name, 'w', encoding='utf-8') as f:
             f.write(html_content)
 
