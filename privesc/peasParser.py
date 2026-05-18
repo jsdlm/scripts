@@ -813,8 +813,7 @@ def main():
         parser = PeasParser(content)
         parser.parse()
 
-        output_dir = 'reports'
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir = '.'
 
         generator = ReportGenerator(parser, output_dir)
         report_path = generator.generate()
