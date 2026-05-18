@@ -792,6 +792,37 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 
+def read_file_autodetect(filepath):
+    """Read a file, detecting encoding from BOM then falling back to common encodings."""
+    with open(filepath, 'rb') as f:
+        raw = f.read()
+
+    # BOM-based detection (most reliable)
+    if raw.startswith(b'\x00\x00\xfe\xff') or raw.startswith(b'\xff\xfe\x00\x00'):
+        encoding = 'utf-32'
+    elif raw.startswith(b'\xff\xfe'):
+        encoding = 'utf-16'
+    elif raw.startswith(b'\xfe\xff'):
+        encoding = 'utf-16'
+    elif raw.startswith(b'\xef\xbb\xbf'):
+        encoding = 'utf-8-sig'
+    else:
+        encoding = None
+
+    if encoding:
+        return raw.decode(encoding), encoding
+
+    # No BOM: try common encodings in order
+    for enc in ('utf-8', 'utf-16', 'cp1252', 'latin-1'):
+        try:
+            return raw.decode(enc), enc
+        except (UnicodeDecodeError, ValueError):
+            continue
+
+    # Last resort
+    return raw.decode('utf-8', errors='replace'), 'utf-8 (lossy)'
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: parser.py <input_file>")
@@ -804,8 +835,8 @@ def main():
 
     print(f"[*] Parsing {input_file}...")
     try:
-        with open(input_file, 'r', encoding='utf-8', errors='replace') as f:
-            content = f.read()
+        content, detected_enc = read_file_autodetect(input_file)
+        print(f"[*] Encoding detected: {detected_enc}")
 
         parser = PeasParser(content)
         parser.parse()
