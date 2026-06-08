@@ -144,93 +144,6 @@ class AnsiConverter:
         return re.sub(r'\x1b\[[\d;]*[a-zA-Z]', '', text)
 
 
-class CategoryManager:
-    """Manages the categorization of checks."""
-
-    # 12 Granular Categories with Expanded Keywords
-    CATEGORIES = {
-        "System Information": [
-            "Basic information", "System Information", "OS Information", "Environment",
-            "Operative system", "Hostname", "Env", "Version", "Date & uptime", "PATH",
-            "linuxONE", "Syslog configuration", "Basic System Information"
-        ],
-        "Kernel & Hardware": [
-            "Kernel", "Loaded modules", "PCI devices", "USB devices",
-            "Dmesg output", "System stats", "CPU", "Drivers", "Processor",
-            "Virtual machine", "Module", "Signature enforcement", "lockdown mode",
-            "sd*/disk*", "Printer"
-        ],
-        "Security & Defenses": [
-            "AppArmor", "SELinux", "ASLR", "Grub configuration", "Auditd",
-            "Defender", "Firewall", "Protections", "Security", "PaX", "Execshield",
-            "Seccomp", "User namespace", "Cgroup2", "kptr_restrict", "dmesg_restrict",
-            "ptrace_scope", "protected_symlinks", "protected_hardlinks", "perf_event_paranoid",
-            "mmap_min_addr", "ld.so", "unpriv_userns_clone", "unpriv_bpf_disabled"
-        ],
-        "Network Information": [
-            "Network Information", "Interfaces", "Ports", "Listening", "Routes",
-            "DNS", "Hosts", "ARP", "Netstat", "Shares", "Iptables", "Nftables", "UFW",
-            "Internet Access", "Sniffing Tools", "networkscripts", "SSH HostbasedAuthentication"
-        ],
-        "User Information": [
-            "User Information", "Users & Groups", "Password Policy", "Logon Sessions",
-            "LSA Secrets", "SAM", "Home folders", "Superusers", "Privileges",
-            "Console", "Last logon", "Last logins", "Last time logon", "Logged in",
-            "Sessions", "My user", "Sudo version", "sudo l", "sudo tokens",
-            "Pkexec", "Polkit", "UID 0", "Failed login attempts", "Recent logins",
-            "auth.log", "su", "passwd file", "shadow file", "opasswd"
-        ],
-        "Processes, Cron & Services": [
-            "Processes Information", "Processes & Cron", "Services Information",
-            "Systemd", "Cron", "Scheduled Tasks", "Autoruns", "Running Processes",
-            "Binary processes", "Timers", "timer", "Sockets", "socket", "Task_work",
-            "Opened Files by processes", "Processes with", "Service Files", "Active services",
-            "Disabled services", "Services running as root", "DBus", "Inetd", "Xinetd",
-            "rcommands", "rservice"
-        ],
-        "Software & Containers": [
-            "Software Information", "Installed Software", "Compiler", "Container",
-            "Docker", "Kubernetes", "LXC", "Useful Software", "Apache", "Nginx",
-            "MariaDB", "Rsync", "PHP", "FastCGI", "Postfix", "Github", "FTP",
-            "FreeIPA", "MySQL", "Postgres", "Mail"
-        ],
-        "Platform & Cloud": [
-            "Cloud", "AWS", "GCP", "Azure", "EC2", "Metadata", "Droplet", "Aliyun", "Tencent"
-        ],
-        "Storage & Mounts": [
-            "Mount points", "Disk space", "LVM information", "Partitions",
-            "Drives", "NFS exports", "Unmounted filesystem", "disk in /dev", "disk in /dev"
-        ],
-        "Files & Permissions": [
-            "File Information", "Interesting Files", "Registry Information",
-            "Writable Files", "Capabilities", "SUID", "SGID", "Permission",
-            "Deleted files", "ACLs", "Executable files", "Unexpected in",
-            "Readable files", "Writable", "Files inside", "Hidden files",
-            "Web files", "Backup", "profile.d", ".sh files",
-            "Analyzing Interesting logs", "Interesting logs", "Analyzing Windows Files",
-            "Windows Files", "Can I read", "Can I write", "Searching root files", "Searching folders owned"
-        ],
-        "Credentials & Secrets": [
-            "Searching passwords", "Credentials", "API Keys", "Passwords", "Identities",
-            "SSH Keys", "History Files", "Browser", "Mails", "GPG keys", "Keyring", "Clipboard",
-            "PGP", "PAM Auth", "Ldap Files", "SSH Files", "Certificates", "ssh and gpg agents",
-            "ssh config", "hashes", "shadow plists", "tables inside", ".db", ".sql", ".sqlite"
-        ],
-        "Vulnerabilities & Exploits": [
-            "Exploits", "CVE", "Vulnerability", "Probes", "Exploit Suggester"
-        ]
-    }
-
-    @classmethod
-    def get_category(cls, section_title):
-        title_lower = section_title.lower()
-        for category, keywords in cls.CATEGORIES.items():
-            for keyword in keywords:
-                if keyword.lower() in title_lower:
-                    return category
-        return "Other Checks"
-
-
 class CredentialScanner:
     PATTERNS = [
         re.compile(r'(?i)-pw\s+["\']?\S{3,}'),
@@ -248,15 +161,28 @@ class PeasParser:
     """Parses Linpeas/Winpeas output."""
 
     ANSI_SGR_RE = re.compile(r'\x1b\[([\d;]*)m')
-    
+
     # Section header color pattern: cyan (1;36m) followed by green (1;32m)
     HEADER_COLOR_PATTERN = re.compile(r'\x1b\[1;36m.*?\x1b\[1;32m')
+
+    # Native PEAS top-level category banner, e.g.:
+    #   ════════╣ [1;32mNetwork Information[1;34m ╠════════   (LinPEAS, blue decoration)
+    #   ════════╣ [1;32mSystem Information[1;36m ╠════════    (WinPEAS, cyan decoration)
+    # The title is flanked by long bars on BOTH sides.
+    CATEGORY_HEADER_RE = re.compile(r'═{3,}╣\s*\x1b\[1;32m([^\x1b]+)\x1b\[1;3[0-9]m\s*╠═{3,}')
+
+    # Native PEAS sub-section header, e.g.:
+    #   ╔══════════╣ [1;32mOperative system           (LinPEAS)
+    #   ╔══════════╣ [1;32mBasic System Information    (WinPEAS)
+    # Only opens with a box corner + bar, no closing flank on the title's right.
+    SECTION_HEADER_RE = re.compile(r'╔═{3,}╣\s*\x1b\[1;32m(.+)')
 
     def __init__(self, content):
         self.raw_content = content
         self.converter = AnsiConverter()
         self.clean_content = self.converter.strip(content)
         self.sections = OrderedDict()
+        self.section_categories = OrderedDict()
         self.categorized_sections = OrderedDict()
         self.findings = []
         self.section_findings = {}
@@ -322,17 +248,20 @@ class PeasParser:
 
     def _is_section_header(self, line):
         """
-        Detect if a line is a section header by ANSI color pattern.
-        Headers use: cyan (1;36m) for decoration + green (1;32m) for title.
-        This works regardless of character encoding corruption.
+        Coarse "does this look like some kind of header" check, used only to
+        locate where the initial PEASS banner ends in _strip_initial_banner.
+        Section/category extraction itself relies on the precise
+        CATEGORY_HEADER_RE / SECTION_HEADER_RE patterns, not this heuristic.
         """
         # Primary detection: cyan + green color pattern
         if self.HEADER_COLOR_PATTERN.search(line):
             return True
-        
-        # Fallback: standard Unicode box-drawing characters
-        box_chars = '╔═╗╚╝║─│┌┐└┘├┤┬┴┼'
-        if any(c in line for c in box_chars):
+
+        # Fallback: box-drawing header shape. Real headers (category banners
+        # and sub-sections alike) always branch off the bar with ╣/╠; plain
+        # box borders (╔══╗ / ╚══╝) never do, so requiring it avoids stopping
+        # on a category banner's top/bottom border line.
+        if '╣' in line or '╠' in line:
             clean = self.converter.strip(line).strip()
             # Headers usually have reasonable length
             if len(clean) < 100 and clean:
@@ -364,57 +293,94 @@ class PeasParser:
                     self.hostname = line.split(":", 1)[1].strip()
                     break
 
+    def _clean_title(self, raw_title):
+        """Strip ANSI codes and surrounding decoration from a captured title."""
+        title = self.converter.strip(raw_title).strip()
+        decorative_chars = '╔═╗╚╝║─│┌┐└┘├┤┬┴┼[]+-'
+        title = title.translate(str.maketrans('', '', decorative_chars)).strip()
+        # Remove stray corrupted/Thai chars sometimes left by encoding issues
+        title = ''.join(c for c in title if ord(c) < 0x0E00 or ord(c) > 0x0E7F)
+        return title.strip()
+
+    def _classify_header_line(self, line):
+        """
+        Classify a line as a native PEAS top-level category banner, a
+        sub-section header, or neither.
+
+        Returns a ('category' | 'section' | None, title) tuple. LinPEAS and
+        WinPEAS both embed a 2-level header hierarchy distinguishable by shape:
+        category banners flank the title with long bars on both sides
+        (═══╣ TITLE ╠═══), while sub-section headers only open with a fixed
+        box corner (╔══════════╣ TITLE).
+        """
+        match = self.CATEGORY_HEADER_RE.search(line)
+        if match:
+            return 'category', self._clean_title(match.group(1))
+
+        match = self.SECTION_HEADER_RE.search(line)
+        if match:
+            return 'section', self._clean_title(match.group(1))
+
+        return None, None
+
     def _extract_sections(self):
         lines = self.raw_content.splitlines()
         current_header = "General Information"
+        current_category = "Other Checks"
         buffer = []
 
-        for line in lines:
-            if self._is_section_header(line):
-                # Save previous section
-                if buffer:
-                    if current_header in self.sections:
-                        self.sections[current_header] += "\n" + "\n".join(buffer)
-                    else:
-                        self.sections[current_header] = "\n".join(buffer)
-                    buffer = []
-
-                # Extract title from the green text portion (after \x1b[1;32m)
-                clean_line = self.converter.strip(line).strip()
-                
-                # Remove decorative characters (both standard and corrupted)
-                # Standard: ╔═╗╚╝║ etc
-                # Corrupted: อออน etc (Thai chars)
-                # Also remove common symbols: []+-
-                decorative_chars = '╔═╗╚╝║─│┌┐└┘├┤┬┴┼[]+-'
-                title = clean_line.translate(str.maketrans('', '', decorative_chars)).strip()
-                
-                # Additional cleanup: remove any remaining Thai/corrupted chars
-                # (they appear as non-ASCII in certain ranges)
-                title = ''.join(c for c in title if ord(c) < 0x0E00 or ord(c) > 0x0E7F)
-                title = title.strip()
-                
-                if title:
-                    current_header = title
-                buffer.append(line)
-            else:
-                buffer.append(line)
-
-        # Save last section
-        if buffer:
+        def flush():
+            nonlocal buffer
+            if not buffer:
+                return
             if current_header in self.sections:
                 self.sections[current_header] += "\n" + "\n".join(buffer)
             else:
                 self.sections[current_header] = "\n".join(buffer)
+                self.section_categories[current_header] = current_category
+            buffer = []
+
+        n = len(lines)
+        idx = 0
+        while idx < n:
+            line = lines[idx]
+            kind, title = self._classify_header_line(line)
+
+            if kind == 'category':
+                # Grab the line just above (LinPEAS's plain box "lid" has no
+                # title/color of its own and would otherwise stay glued to the
+                # previous section) and the line just below (the box's bottom
+                # "lid") so the whole banner block lands in the new category.
+                carry = buffer.pop() if buffer else None
+                flush()
+                if title:
+                    current_category = title
+                    current_header = title
+                if carry is not None:
+                    buffer.append(carry)
+                buffer.append(line)
+                if idx + 1 < n:
+                    idx += 1
+                    buffer.append(lines[idx])
+                idx += 1
+                continue
+
+            if kind == 'section':
+                flush()
+                if title:
+                    current_header = title
+
+            buffer.append(line)
+            idx += 1
+
+        flush()
 
     def _organize_categories(self):
-        for cat in CategoryManager.CATEGORIES.keys():
-            self.categorized_sections[cat] = OrderedDict()
-        self.categorized_sections["Other Checks"] = OrderedDict()
-
         idx = 0
         for title, content in self.sections.items():
-            category = CategoryManager.get_category(title)
+            category = self.section_categories.get(title, "Other Checks")
+            if category not in self.categorized_sections:
+                self.categorized_sections[category] = OrderedDict()
             self.categorized_sections[category][title] = content
             self.section_ids[title] = f"s{idx}"
             idx += 1
